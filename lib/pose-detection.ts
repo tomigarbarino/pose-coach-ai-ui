@@ -31,16 +31,18 @@ export async function loadPoseNet() {
   try {
     // Dynamically import TensorFlow.js and PoseNet
     tf = await import("@tensorflow/tfjs")
-    const poseDetection = await import("@tensorflow-models/pose-detection")
+    const poseNetModule = await import("@tensorflow-models/posenet")
 
-    // Create detector
-    const detectorConfig = {
-      modelType: poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING,
-    }
-    const detector = await poseDetection.createDetector(poseDetection.SupportedModels.MoveNet, detectorConfig)
+    // Load PoseNet model
+    const net = await poseNetModule.load({
+      architecture: 'MobileNetV1',
+      outputStride: 16,
+      inputResolution: { width: 257, height: 257 },
+      multiplier: 0.75
+    })
 
-    poseNet = detector
-    return detector
+    poseNet = net
+    return net
   } catch (error) {
     console.error("[v0] Error loading PoseNet:", error)
     return null
@@ -50,14 +52,16 @@ export async function loadPoseNet() {
 // Analyze pose from image
 export async function analyzePoseFromImage(imageElement: HTMLImageElement): Promise<PoseAnalysis> {
   try {
-    const detector = await loadPoseNet()
-    if (!detector) {
+    const net = await loadPoseNet()
+    if (!net) {
       throw new Error("Failed to load pose detection model")
     }
 
-    const poses = await detector.estimatePoses(imageElement)
+    const pose = await net.estimateSinglePose(imageElement, {
+      flipHorizontal: false
+    })
 
-    if (poses.length === 0) {
+    if (!pose || pose.score < 0.1) {
       return {
         score: 0,
         feedback: [
@@ -71,7 +75,6 @@ export async function analyzePoseFromImage(imageElement: HTMLImageElement): Prom
       }
     }
 
-    const pose = poses[0]
     const analysis = evaluatePose(pose)
 
     return analysis
@@ -247,6 +250,94 @@ function evaluatePose(pose: any): PoseAnalysis {
       score: kp.score,
     })),
   }
+}
+
+// Draw pose keypoints on canvas from video in real-time
+export async function detectPoseFromVideo(
+  videoElement: HTMLVideoElement,
+  canvasElement: HTMLCanvasElement,
+): Promise<void> {
+  const net = await loadPoseNet()
+  if (!net) return
+
+  const ctx = canvasElement.getContext("2d")
+  if (!ctx) return
+
+  // Set canvas size to match video
+  canvasElement.width = videoElement.videoWidth
+  canvasElement.height = videoElement.videoHeight
+
+  async function detectFrame() {
+    if (videoElement.readyState < 2) {
+      requestAnimationFrame(detectFrame)
+      return
+    }
+
+    try {
+      const pose = await net.estimateSinglePose(videoElement, {
+        flipHorizontal: false
+      })
+
+      if (!ctx) return
+
+      // Clear canvas
+      ctx.clearRect(0, 0, canvasElement.width, canvasElement.height)
+      
+      // Draw video frame
+      ctx.drawImage(videoElement, 0, 0, canvasElement.width, canvasElement.height)
+
+      if (pose && pose.score > 0.1) {
+        // Draw keypoints
+        pose.keypoints.forEach((keypoint: any) => {
+          if (keypoint.score > 0.5 && ctx) {
+            ctx.beginPath()
+            ctx.arc(keypoint.position.x, keypoint.position.y, 8, 0, 2 * Math.PI)
+            ctx.fillStyle = "rgb(132, 250, 176)"
+            ctx.fill()
+            ctx.strokeStyle = "rgb(20, 40, 30)"
+            ctx.lineWidth = 2
+            ctx.stroke()
+          }
+        })
+
+        // Draw skeleton connections
+        const connections = [
+          ["leftShoulder", "rightShoulder"],
+          ["leftShoulder", "leftElbow"],
+          ["leftElbow", "leftWrist"],
+          ["rightShoulder", "rightElbow"],
+          ["rightElbow", "rightWrist"],
+          ["leftShoulder", "leftHip"],
+          ["rightShoulder", "rightHip"],
+          ["leftHip", "rightHip"],
+          ["leftHip", "leftKnee"],
+          ["leftKnee", "leftAnkle"],
+          ["rightHip", "rightKnee"],
+          ["rightKnee", "rightAnkle"],
+        ]
+
+        connections.forEach(([start, end]) => {
+          const startPoint = pose.keypoints.find((kp: any) => kp.part === start)
+          const endPoint = pose.keypoints.find((kp: any) => kp.part === end)
+
+          if (startPoint && endPoint && startPoint.score > 0.5 && endPoint.score > 0.5 && ctx) {
+            ctx.beginPath()
+            ctx.moveTo(startPoint.position.x, startPoint.position.y)
+            ctx.lineTo(endPoint.position.x, endPoint.position.y)
+            ctx.strokeStyle = "rgb(132, 250, 176)"
+            ctx.lineWidth = 3
+            ctx.stroke()
+          }
+        })
+      }
+    } catch (error) {
+      console.error("Error detecting pose:", error)
+    }
+
+    requestAnimationFrame(detectFrame)
+  }
+
+  detectFrame()
 }
 
 // Draw pose keypoints on canvas

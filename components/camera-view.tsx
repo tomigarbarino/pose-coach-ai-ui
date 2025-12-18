@@ -6,27 +6,57 @@ import { ArrowLeft, Camera, Circle, SwitchCamera, AlertCircle } from "lucide-rea
 import { useLanguage } from "@/lib/language-context"
 import { getTranslation } from "@/lib/i18n"
 import { Alert, AlertDescription } from "@/components/ui/alert"
+import { PoseDetectorService } from "@/services/PoseDetector"
+import { drawKeypoints, clearCanvas } from "@/utils/canvasDrawing"
 
 interface CameraViewProps {
-  onCapture: (imageUrl: string) => void
+  onCapture: (imageUrl: string, selectedPose: string) => void
   onBack: () => void
 }
 
 const poses = ["frontDoubleBiceps", "latSpread", "sideChest", "backDoubleBiceps"] as const
+type PoseType = typeof poses[number]
 
 export default function CameraView({ onCapture, onBack }: CameraViewProps) {
   const { language } = useLanguage()
   const t = (key: Parameters<typeof getTranslation>[1]) => getTranslation(language, key)
 
-  const [selectedPose, setSelectedPose] = useState(poses[0])
+  const [selectedPose, setSelectedPose] = useState<PoseType>(poses[0])
   const [isCapturing, setIsCapturing] = useState(false)
   const [stream, setStream] = useState<MediaStream | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [facingMode, setFacingMode] = useState<"user" | "environment">("user")
   const [hasPermission, setHasPermission] = useState<boolean | null>(null)
+  const [isPoseDetectionActive, setIsPoseDetectionActive] = useState(false)
 
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const overlayCanvasRef = useRef<HTMLCanvasElement>(null)
+  
+  // MANTENER REFERENCIAS (NO ESTADOS) PARA EL BUCLE DE ANIMACIÓN
+  const detectorRef = useRef<PoseDetectorService | null>(null)
+  const loopRef = useRef<number | undefined>(undefined)
+
+  // Inicializar Detector UNA SOLA VEZ
+  useEffect(() => {
+    const initDetector = async () => {
+      try {
+        detectorRef.current = PoseDetectorService.getInstance()
+        await detectorRef.current.initialize()
+        console.log('[CameraView] Detector inicializado')
+      } catch (error) {
+        console.error('[CameraView] Error al inicializar detector:', error)
+      }
+    }
+    initDetector()
+
+    return () => {
+      // Cleanup: cancelar el bucle de animación
+      if (loopRef.current) {
+        cancelAnimationFrame(loopRef.current)
+      }
+    }
+  }, [])
 
   useEffect(() => {
     startCamera()
@@ -34,6 +64,61 @@ export default function CameraView({ onCapture, onBack }: CameraViewProps) {
       stopCamera()
     }
   }, [facingMode])
+
+  // Bucle de Detección en Tiempo Real
+  useEffect(() => {
+    if (!stream || !videoRef.current || !overlayCanvasRef.current || !detectorRef.current) return
+
+    const video = videoRef.current
+    const canvas = overlayCanvasRef.current
+
+    // Ajustar tamaño del canvas al video
+    const updateCanvasSize = () => {
+      if (video.videoWidth > 0 && video.videoHeight > 0) {
+        canvas.width = video.videoWidth
+        canvas.height = video.videoHeight
+        setIsPoseDetectionActive(true)
+      }
+    }
+
+    video.addEventListener('loadedmetadata', updateCanvasSize)
+    updateCanvasSize()
+
+    const loop = async () => {
+      if (video.readyState === video.HAVE_ENOUGH_DATA && canvas.width > 0) {
+        try {
+          // 1. Estimar pose
+          const pose = await detectorRef.current!.estimate(video)
+
+          // 2. Limpiar canvas
+          const ctx = canvas.getContext('2d')
+          if (ctx) {
+            clearCanvas(canvas)
+
+            // 3. Dibujar skeleton si hay pose detectada
+            if (pose && pose.keypoints.length > 0) {
+              drawKeypoints(ctx, pose.keypoints, 0.3)
+            }
+          }
+        } catch (error) {
+          console.error('[CameraView] Error en detección:', error)
+        }
+      }
+
+      loopRef.current = requestAnimationFrame(loop)
+    }
+
+    if (isPoseDetectionActive) {
+      loop()
+    }
+
+    return () => {
+      video.removeEventListener('loadedmetadata', updateCanvasSize)
+      if (loopRef.current) {
+        cancelAnimationFrame(loopRef.current)
+      }
+    }
+  }, [stream, isPoseDetectionActive])
 
   const startCamera = async () => {
     try {
@@ -91,7 +176,7 @@ export default function CameraView({ onCapture, onBack }: CameraViewProps) {
       setTimeout(() => {
         setIsCapturing(false)
         stopCamera()
-        onCapture(imageUrl)
+        onCapture(imageUrl, selectedPose)
       }, 300)
     }
   }
@@ -125,6 +210,12 @@ export default function CameraView({ onCapture, onBack }: CameraViewProps) {
         )}
 
         <video ref={videoRef} autoPlay playsInline muted className="absolute inset-0 w-full h-full object-cover" />
+
+        {/* Overlay canvas for pose detection */}
+        <canvas 
+          ref={overlayCanvasRef} 
+          className="absolute inset-0 w-full h-full object-cover pointer-events-none"
+        />
 
         <canvas ref={canvasRef} className="hidden" />
 

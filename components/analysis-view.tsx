@@ -10,65 +10,119 @@ import { useLanguage } from "@/lib/language-context"
 import { getTranslation } from "@/lib/i18n"
 import { addScan } from "@/lib/storage"
 import type { ScanResult } from "@/lib/storage"
-import { analyzePoseFromImage, drawPoseOnCanvas } from "@/lib/pose-detection"
-import type { PoseAnalysis } from "@/lib/pose-detection"
+import { PoseDetectorService } from "@/services/PoseDetector"
+import { drawKeypoints, clearCanvas } from "@/utils/canvasDrawing"
+import { analyzeFrontDoubleBicep } from "@/analysis/strategies/FrontDoubleBicep"
+import type { PoseEvaluationResult } from "@/types/analysis"
 
 interface AnalysisViewProps {
   imageUrl: string
+  selectedPose: string
   onBack: () => void
 }
 
-export default function AnalysisView({ imageUrl, onBack }: AnalysisViewProps) {
+// Mapa de estrategias de análisis
+const STRATEGIES: Record<string, (keypoints: any[]) => PoseEvaluationResult> = {
+  frontDoubleBiceps: analyzeFrontDoubleBicep,
+  // latSpread: analyzeLatSpread, // TODO: Implementar
+  // sideChest: analyzeSideChest, // TODO: Implementar
+  // backDoubleBiceps: analyzeBackDoubleBiceps, // TODO: Implementar
+}
+
+export default function AnalysisView({ imageUrl, selectedPose, onBack }: AnalysisViewProps) {
   const { language } = useLanguage()
   const t = (key: Parameters<typeof getTranslation>[1]) => getTranslation(language, key)
 
   const [showSkeleton, setShowSkeleton] = useState(false)
   const [isSaved, setIsSaved] = useState(false)
   const [isAnalyzing, setIsAnalyzing] = useState(true)
-  const [analysis, setAnalysis] = useState<PoseAnalysis | null>(null)
+  const [analysis, setAnalysis] = useState<PoseEvaluationResult | null>(null)
 
   const imageRef = useRef<HTMLImageElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const detectorRef = useRef<PoseDetectorService | null>(null)
 
   useEffect(() => {
-    performAnalysis()
-  }, [imageUrl])
+    if (imageRef.current && imageRef.current.complete) {
+      performAnalysis()
+    }
+  }, [imageUrl, selectedPose])
 
   const performAnalysis = async () => {
     if (!imageRef.current) return
 
     setIsAnalyzing(true)
 
-    const img = new Image()
-    img.crossOrigin = "anonymous"
-    img.src = imageUrl
-
-    img.onload = async () => {
-      const result = await analyzePoseFromImage(img)
-      setAnalysis(result)
-      setIsAnalyzing(false)
-
-      if (canvasRef.current && result.keypoints.length > 0) {
-        drawPoseOnCanvas(canvasRef.current, img, result.keypoints)
+    try {
+      // 1. Inicializar detector si no existe
+      if (!detectorRef.current) {
+        detectorRef.current = PoseDetectorService.getInstance()
+        await detectorRef.current.initialize()
       }
-    }
 
-    img.onerror = () => {
-      setIsAnalyzing(false)
+      const img = imageRef.current
+
+      // 2. Obtener keypoints crudos con PoseNet
+      const pose = await detectorRef.current.estimate(img)
+
+      if (pose && pose.keypoints && pose.keypoints.length > 0) {
+        // 3. SELECCIONAR ESTRATEGIA MATEMÁTICA según la pose elegida
+        const strategy = STRATEGIES[selectedPose] || analyzeFrontDoubleBicep
+
+        // 4. Ejecutar análisis geométrico específico
+        const result = strategy(pose.keypoints)
+
+        setAnalysis(result)
+
+        // 5. Preparar canvas para dibujar esqueleto
+        if (canvasRef.current) {
+          const canvas = canvasRef.current
+          canvas.width = img.width
+          canvas.height = img.height
+
+          const ctx = canvas.getContext('2d')
+          if (ctx) {
+            // Dibujar la imagen de fondo
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+            // Dibujar esqueleto encima
+            drawKeypoints(ctx, pose.keypoints, 0.3)
+          }
+        }
+      } else {
+        // No se detectó ninguna pose
+        setAnalysis({
+          score: 0,
+          feedback: [
+            {
+              title: language === "en" ? "No Pose Detected" : "No se Detectó Pose",
+              description:
+                language === "en"
+                  ? "Unable to detect your body pose. Please ensure good lighting and full body visibility."
+                  : "No se pudo detectar tu pose corporal. Asegúrate de tener buena iluminación y visibilidad completa del cuerpo.",
+              status: "error",
+            },
+          ],
+          keypoints: [],
+        })
+      }
+    } catch (error) {
+      console.error('[AnalysisView] Error durante el análisis:', error)
       setAnalysis({
         score: 0,
         feedback: [
           {
-            title: language === "en" ? "Image Load Error" : "Error al Cargar Imagen",
+            title: language === "en" ? "Analysis Error" : "Error de Análisis",
             description:
               language === "en"
-                ? "Failed to load the captured image. Please try again."
-                : "No se pudo cargar la imagen capturada. Por favor intenta de nuevo.",
+                ? "An error occurred while analyzing your pose. Please try again."
+                : "Ocurrió un error al analizar tu pose. Por favor intenta de nuevo.",
             status: "error",
           },
         ],
         keypoints: [],
       })
+    } finally {
+      setIsAnalyzing(false)
     }
   }
 

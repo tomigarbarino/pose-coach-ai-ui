@@ -148,6 +148,11 @@ export function deleteScan(scanId: string): void {
   recalculateStats(filtered)
 }
 
+export function clearScans(): void {
+  if (typeof window === "undefined") return
+  localStorage.setItem(STORAGE_KEYS.SCANS, JSON.stringify([]))
+}
+
 // Settings functions
 export function getSettings(): UserSettings {
   if (typeof window === "undefined") return DEFAULT_SETTINGS

@@ -14,11 +14,15 @@ export default function BottomNav({ currentView, onViewChange }: BottomNavProps)
   const { language } = useLanguage()
   const t = (key: Parameters<typeof getTranslation>[1]) => getTranslation(language, key)
 
-  const navItems = [
-    { id: "home" as const, icon: Home, label: "home" as const },
-    { id: "social" as const, icon: Users, label: language === "en" ? "Community" : "Comunidad" },
-    { id: "history" as const, icon: History, label: "history" as const },
-    { id: "profile" as const, icon: User, label: "profile" as const },
+  const navItems: Array<{
+    id: "home" | "history" | "profile" | "social"
+    icon: typeof Home
+    label: string | "home" | "history" | "profile"
+  }> = [
+    { id: "home", icon: Home, label: "home" },
+    { id: "social", icon: Users, label: language === "en" ? "Community" : "Comunidad" },
+    { id: "history", icon: History, label: "history" },
+    { id: "profile", icon: User, label: "profile" },
   ]
 
   return (

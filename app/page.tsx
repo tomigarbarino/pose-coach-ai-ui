@@ -18,6 +18,7 @@ type View = "home" | "camera" | "analysis" | "history" | "profile" | "social"
 export default function PoseCoachApp() {
   const [currentView, setCurrentView] = useState<View>("home")
   const [capturedImage, setCapturedImage] = useState<string | null>(null)
+  const [selectedPose, setSelectedPose] = useState<string>("frontDoubleBiceps")
   const [showOnboarding, setShowOnboarding] = useState(false)
   const { language } = useLanguage()
   const t = (key: Parameters<typeof getTranslation>[1]) => getTranslation(language, key)
@@ -40,8 +41,9 @@ export default function PoseCoachApp() {
     setCurrentView("camera")
   }
 
-  const handleCapture = (imageUrl: string) => {
+  const handleCapture = (imageUrl: string, pose: string) => {
     setCapturedImage(imageUrl)
+    setSelectedPose(pose)
     setCurrentView("analysis")
   }
 
@@ -62,7 +64,7 @@ export default function PoseCoachApp() {
           {currentView === "home" && <DashboardView onAnalyzePose={handleAnalyzePose} />}
           {currentView === "camera" && <CameraView onCapture={handleCapture} onBack={handleBackToHome} />}
           {currentView === "analysis" && capturedImage && (
-            <AnalysisView imageUrl={capturedImage} onBack={handleBackToHome} />
+            <AnalysisView imageUrl={capturedImage} selectedPose={selectedPose} onBack={handleBackToHome} />
           )}
           {currentView === "history" && <HistoryView />}
           {currentView === "profile" && <ProfileView />}
