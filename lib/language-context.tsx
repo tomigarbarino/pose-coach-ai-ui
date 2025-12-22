@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { createContext, useContext, useState, useEffect } from "react"
+import { createContext, useContext, useState } from "react"
 import type { Language } from "./i18n"
 
 interface LanguageContextType {
@@ -13,15 +13,11 @@ interface LanguageContextType {
 const LanguageContext = createContext<LanguageContextType | undefined>(undefined)
 
 export function LanguageProvider({ children }: { children: React.ReactNode }) {
-  const [language, setLanguageState] = useState<Language>("es")
-
-  useEffect(() => {
-    // Load language from localStorage
+  const [language, setLanguageState] = useState<Language>(() => {
+    if (typeof window === "undefined") return "es"
     const savedLanguage = localStorage.getItem("language") as Language
-    if (savedLanguage && (savedLanguage === "en" || savedLanguage === "es")) {
-      setLanguageState(savedLanguage)
-    }
-  }, [])
+    return savedLanguage === "en" || savedLanguage === "es" ? savedLanguage : "es"
+  })
 
   const setLanguage = (newLanguage: Language) => {
     setLanguageState(newLanguage)
