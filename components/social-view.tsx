@@ -1,12 +1,13 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Avatar } from "@/components/ui/avatar"
 import { Users, TrendingUp, Award, ThumbsUp, MessageCircle, Share2 } from "lucide-react"
 import { useLanguage } from "@/lib/language-context"
 import { Badge } from "@/components/ui/badge"
+import Image from "next/image"
 
 interface CommunityPost {
   id: string
@@ -21,54 +22,50 @@ interface CommunityPost {
   isLiked: boolean
 }
 
+// Mock community posts (sin efecto: evita render extra + lint setState-in-effect)
+const MOCK_POSTS: CommunityPost[] = [
+  {
+    id: "1",
+    userName: "Mike Rodriguez",
+    userAvatar: "/determined-athlete.png",
+    pose: "frontDoubleBiceps",
+    score: 96,
+    image: "/bodybuilder-front-double-biceps.jpg",
+    likes: 234,
+    comments: 45,
+    timeAgo: "2h ago",
+    isLiked: false,
+  },
+  {
+    id: "2",
+    userName: "Sarah Chen",
+    userAvatar: "/determined-athlete.png",
+    pose: "latSpread",
+    score: 94,
+    image: "/bodybuilder-lat-spread.jpg",
+    likes: 189,
+    comments: 32,
+    timeAgo: "5h ago",
+    isLiked: true,
+  },
+  {
+    id: "3",
+    userName: "Carlos Mendez",
+    userAvatar: "/determined-athlete.png",
+    pose: "sideChest",
+    score: 92,
+    image: "/bodybuilder-side-chest.jpg",
+    likes: 156,
+    comments: 28,
+    timeAgo: "1d ago",
+    isLiked: false,
+  },
+]
+
 export default function SocialView() {
   const { language } = useLanguage()
-  const [posts, setPosts] = useState<CommunityPost[]>([])
+  const [posts, setPosts] = useState<CommunityPost[]>(MOCK_POSTS)
   const [activeTab, setActiveTab] = useState<"trending" | "following">("trending")
-
-  useEffect(() => {
-    // Mock community posts
-    const mockPosts: CommunityPost[] = [
-      {
-        id: "1",
-        userName: "Mike Rodriguez",
-        userAvatar: "/determined-athlete.png",
-        pose: "frontDoubleBiceps",
-        score: 96,
-        image: "/bodybuilder-front-double-biceps.jpg",
-        likes: 234,
-        comments: 45,
-        timeAgo: "2h ago",
-        isLiked: false,
-      },
-      {
-        id: "2",
-        userName: "Sarah Chen",
-        userAvatar: "/determined-athlete.png",
-        pose: "latSpread",
-        score: 94,
-        image: "/bodybuilder-lat-spread.jpg",
-        likes: 189,
-        comments: 32,
-        timeAgo: "5h ago",
-        isLiked: true,
-      },
-      {
-        id: "3",
-        userName: "Carlos Mendez",
-        userAvatar: "/determined-athlete.png",
-        pose: "sideChest",
-        score: 92,
-        image: "/bodybuilder-side-chest.jpg",
-        likes: 156,
-        comments: 28,
-        timeAgo: "1d ago",
-        isLiked: false,
-      },
-    ]
-
-    setPosts(mockPosts)
-  }, [])
 
   const handleLike = (postId: string) => {
     setPosts((prev) =>
@@ -187,11 +184,15 @@ export default function SocialView() {
             <div className="p-4 flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <Avatar className="w-10 h-10 border-2 border-primary/30">
-                  <img
-                    src={post.userAvatar || "/placeholder.svg"}
-                    alt={post.userName}
-                    className="w-full h-full object-cover"
-                  />
+                  <div className="relative w-full h-full">
+                    <Image
+                      src={post.userAvatar || "/placeholder.svg"}
+                      alt={post.userName}
+                      fill
+                      sizes="40px"
+                      className="object-cover"
+                    />
+                  </div>
                 </Avatar>
                 <div>
                   <p className="font-semibold text-sm">{post.userName}</p>
@@ -206,7 +207,13 @@ export default function SocialView() {
 
             {/* Post Image */}
             <div className="relative aspect-square bg-secondary">
-              <img src={post.image || "/placeholder.svg"} alt={post.pose} className="w-full h-full object-cover" />
+              <Image
+                src={post.image || "/placeholder.svg"}
+                alt={post.pose}
+                fill
+                sizes="(max-width: 768px) 100vw, 512px"
+                className="object-cover"
+              />
               <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/80 to-transparent">
                 <p className="text-white font-semibold">{getPoseLabel(post.pose)}</p>
               </div>

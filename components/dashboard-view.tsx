@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Camera, TrendingUp } from "lucide-react"
@@ -9,6 +9,7 @@ import { getTranslation } from "@/lib/i18n"
 import LanguageSelector from "./language-selector"
 import { getScans, getProfile } from "@/lib/storage"
 import type { ScanResult, UserProfile } from "@/lib/storage"
+import Image from "next/image"
 
 interface DashboardViewProps {
   onAnalyzePose: () => void
@@ -18,15 +19,8 @@ export default function DashboardView({ onAnalyzePose }: DashboardViewProps) {
   const { language } = useLanguage()
   const t = (key: Parameters<typeof getTranslation>[1]) => getTranslation(language, key)
 
-  const [recentScans, setRecentScans] = useState<ScanResult[]>([])
-  const [profile, setProfile] = useState<UserProfile | null>(null)
-
-  useEffect(() => {
-    const scans = getScans().slice(0, 3)
-    const userProfile = getProfile()
-    setRecentScans(scans)
-    setProfile(userProfile)
-  }, [])
+  const [recentScans] = useState<ScanResult[]>(() => getScans().slice(0, 3))
+  const [profile] = useState<UserProfile>(() => getProfile())
 
   return (
     <div className="p-6 space-y-8 animate-in fade-in duration-500">
@@ -79,10 +73,13 @@ export default function DashboardView({ onAnalyzePose }: DashboardViewProps) {
                   style={{ animationDelay: `${index * 100 + 500}ms` }}
                 >
                   <div className="aspect-square relative overflow-hidden bg-secondary">
-                    <img
+                    <Image
                       src={scan.thumbnail || "/placeholder.svg?height=160&width=160"}
                       alt={t(scan.pose as any)}
-                      className="w-full h-full object-cover transition-transform hover:scale-110"
+                      fill
+                      sizes="160px"
+                      className="object-cover transition-transform hover:scale-110"
+                      unoptimized
                     />
                   </div>
                   <div className="p-3 space-y-1">

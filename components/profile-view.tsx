@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState } from "react"
 import { User, Globe, Bell, Ruler, Moon, Info, ChevronRight, Check } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
@@ -9,47 +9,23 @@ import { useLanguage } from "@/lib/language-context"
 import { getTranslation } from "@/lib/i18n"
 import { getProfile, getSettings, saveSettings } from "@/lib/storage"
 import type { UserSettings } from "@/lib/storage"
-import type { category } from "@/lib/category" // Import or declare the category variable
 
 export default function ProfileView() {
   const { language, setLanguage } = useLanguage()
   const t = (key: Parameters<typeof getTranslation>[1]) => getTranslation(language, key)
 
-  const [settings, setSettingsState] = useState<UserSettings>({
-    language: "en",
-    units: "metric",
-    notifications: {
-      progress: true,
-      tips: true,
-      reminders: true,
-    },
-    appearance: {
-      darkMode: true,
-    },
-    privacy: {
-      shareProgress: false,
-      analytics: true,
-    },
-  })
+  const [settings, setSettingsState] = useState<UserSettings>(() => getSettings())
 
-  const [profile, setProfile] = useState({
-    totalScans: 0,
-    averageScore: 0,
-    streak: 0,
-  })
-
-  const [showLanguageMenu, setShowLanguageMenu] = useState(false)
-
-  useEffect(() => {
-    const storedSettings = getSettings()
+  const [profile] = useState(() => {
     const storedProfile = getProfile()
-    setSettingsState(storedSettings)
-    setProfile({
+    return {
       totalScans: storedProfile.totalScans,
       averageScore: storedProfile.averageScore,
       streak: storedProfile.streak,
-    })
-  }, [])
+    }
+  })
+
+  const [showLanguageMenu, setShowLanguageMenu] = useState(false)
 
   const handleLanguageChange = (lang: "en" | "es") => {
     setLanguage(lang)
@@ -59,15 +35,33 @@ export default function ProfileView() {
     setShowLanguageMenu(false)
   }
 
-  const handleSettingToggle = (category: keyof UserSettings, key: string) => {
-    const newSettings = { ...settings }
-    if (category === "notifications" || category === "appearance" || category === "privacy") {
-      newSettings[category] = {
-        ...newSettings[category],
-        [key]: !newSettings[category][key as keyof (typeof newSettings)[category]],
-      }
-    } else if (category === "units") {
-      newSettings.units = newSettings.units === "metric" ? "imperial" : "metric"
+  const toggleUnits = () => {
+    const newSettings: UserSettings = {
+      ...settings,
+      units: settings.units === "metric" ? "imperial" : "metric",
+    }
+    setSettingsState(newSettings)
+    saveSettings(newSettings)
+  }
+
+  type ToggleSection = "notifications" | "appearance" | "privacy"
+  type ToggleKeyMap = {
+    notifications: keyof UserSettings["notifications"]
+    appearance: keyof UserSettings["appearance"]
+    privacy: keyof UserSettings["privacy"]
+  }
+
+  const toggleSetting = <S extends ToggleSection>(section: S, key: ToggleKeyMap[S]) => {
+    // TS: indexar dinámicamente sobre sub-objetos (notifications/appearance/privacy)
+    // requiere un pequeño cast porque el índice depende del genérico.
+    const currentSection = settings[section] as Record<string, boolean>
+
+    const newSettings: UserSettings = {
+      ...settings,
+      [section]: {
+        ...currentSection,
+        [key]: !currentSection[key as string],
+      } as UserSettings[S],
     }
     setSettingsState(newSettings)
     saveSettings(newSettings)
@@ -182,7 +176,7 @@ export default function ProfileView() {
                   </p>
                 </div>
               </div>
-              <Switch checked={settings.units === "metric"} onCheckedChange={() => handleSettingToggle("units", "")} />
+              <Switch checked={settings.units === "metric"} onCheckedChange={toggleUnits} />
             </div>
           </Card>
         </div>
@@ -207,7 +201,7 @@ export default function ProfileView() {
               </div>
               <Switch
                 checked={settings.notifications.progress}
-                onCheckedChange={() => handleSettingToggle("notifications", "progress")}
+                onCheckedChange={() => toggleSetting("notifications", "progress")}
               />
             </div>
 
@@ -227,7 +221,7 @@ export default function ProfileView() {
               </div>
               <Switch
                 checked={settings.notifications.tips}
-                onCheckedChange={() => handleSettingToggle("notifications", "tips")}
+                onCheckedChange={() => toggleSetting("notifications", "tips")}
               />
             </div>
           </Card>
@@ -253,7 +247,7 @@ export default function ProfileView() {
               </div>
               <Switch
                 checked={settings.appearance.darkMode}
-                onCheckedChange={() => handleSettingToggle("appearance", "darkMode")}
+                onCheckedChange={() => toggleSetting("appearance", "darkMode")}
               />
             </div>
           </Card>
@@ -281,7 +275,7 @@ export default function ProfileView() {
               </div>
               <Switch
                 checked={settings.privacy.shareProgress}
-                onCheckedChange={() => handleSettingToggle("privacy", "shareProgress")}
+                onCheckedChange={() => toggleSetting("privacy", "shareProgress")}
               />
             </div>
           </Card>

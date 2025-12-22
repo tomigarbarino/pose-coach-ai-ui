@@ -1,13 +1,16 @@
 "use client"
 
-import { useState, useRef, useEffect } from "react"
+import { useState, useRef, useEffect, useCallback } from "react"
 import { Button } from "@/components/ui/button"
 import { ArrowLeft, Camera, Circle, SwitchCamera, AlertCircle } from "lucide-react"
 import { useLanguage } from "@/lib/language-context"
 import { getTranslation } from "@/lib/i18n"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { PoseDetectorService } from "@/services/PoseDetector"
+import type { PoseDetectorBackend, PoseDetectorInitState } from "@/services/PoseDetector"
 import { drawKeypoints, clearCanvas } from "@/utils/canvasDrawing"
+import { analyzeFrontDoubleBicep } from "@/analysis/strategies/FrontDoubleBicep"
+import type { PoseEvaluationResult } from "@/types/analysis"
 
 interface CameraViewProps {
   onCapture: (imageUrl: string, selectedPose: string) => void
@@ -29,23 +32,49 @@ export default function CameraView({ onCapture, onBack }: CameraViewProps) {
   const [hasPermission, setHasPermission] = useState<boolean | null>(null)
   const [isPoseDetectionActive, setIsPoseDetectionActive] = useState(false)
 
+  // Estado del modelo + feedback en vivo
+  const [detectorReady, setDetectorReady] = useState(false)
+  const [detectorStatus, setDetectorStatus] = useState<{
+    state: PoseDetectorInitState
+    backend: PoseDetectorBackend | null
+    error: string | null
+  }>(() => ({
+    state: "idle",
+    backend: null,
+    error: null,
+  }))
+  const [liveConfidence, setLiveConfidence] = useState<number | null>(null)
+  const [liveAnalysis, setLiveAnalysis] = useState<PoseEvaluationResult | null>(null)
+
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const overlayCanvasRef = useRef<HTMLCanvasElement>(null)
+  const streamRef = useRef<MediaStream | null>(null)
   
   // MANTENER REFERENCIAS (NO ESTADOS) PARA EL BUCLE DE ANIMACIÓN
   const detectorRef = useRef<PoseDetectorService | null>(null)
   const loopRef = useRef<number | undefined>(undefined)
+  const isEstimatingRef = useRef(false)
+  const lastEstimateTimeRef = useRef(0)
 
   // Inicializar Detector UNA SOLA VEZ
   useEffect(() => {
     const initDetector = async () => {
       try {
         detectorRef.current = PoseDetectorService.getInstance()
+        setDetectorStatus({ state: "initializing", backend: null, error: null })
         await detectorRef.current.initialize()
+        const status = detectorRef.current.getStatus()
+        setDetectorStatus(status)
+        setDetectorReady(true)
         console.log('[CameraView] Detector inicializado')
       } catch (error) {
         console.error('[CameraView] Error al inicializar detector:', error)
+        setDetectorStatus({
+          state: "error",
+          backend: null,
+          error: error instanceof Error ? error.message : String(error),
+        })
       }
     }
     initDetector()
@@ -59,68 +88,19 @@ export default function CameraView({ onCapture, onBack }: CameraViewProps) {
   }, [])
 
   useEffect(() => {
-    startCamera()
-    return () => {
-      stopCamera()
+    streamRef.current = stream
+  }, [stream])
+
+  const stopCamera = useCallback(() => {
+    const currentStream = streamRef.current
+    if (currentStream) {
+      currentStream.getTracks().forEach((track) => track.stop())
+      streamRef.current = null
+      setStream(null)
     }
-  }, [facingMode])
+  }, [])
 
-  // Bucle de Detección en Tiempo Real
-  useEffect(() => {
-    if (!stream || !videoRef.current || !overlayCanvasRef.current || !detectorRef.current) return
-
-    const video = videoRef.current
-    const canvas = overlayCanvasRef.current
-
-    // Ajustar tamaño del canvas al video
-    const updateCanvasSize = () => {
-      if (video.videoWidth > 0 && video.videoHeight > 0) {
-        canvas.width = video.videoWidth
-        canvas.height = video.videoHeight
-        setIsPoseDetectionActive(true)
-      }
-    }
-
-    video.addEventListener('loadedmetadata', updateCanvasSize)
-    updateCanvasSize()
-
-    const loop = async () => {
-      if (video.readyState === video.HAVE_ENOUGH_DATA && canvas.width > 0) {
-        try {
-          // 1. Estimar pose
-          const pose = await detectorRef.current!.estimate(video)
-
-          // 2. Limpiar canvas
-          const ctx = canvas.getContext('2d')
-          if (ctx) {
-            clearCanvas(canvas)
-
-            // 3. Dibujar skeleton si hay pose detectada
-            if (pose && pose.keypoints.length > 0) {
-              drawKeypoints(ctx, pose.keypoints, 0.3)
-            }
-          }
-        } catch (error) {
-          console.error('[CameraView] Error en detección:', error)
-        }
-      }
-
-      loopRef.current = requestAnimationFrame(loop)
-    }
-
-    if (isPoseDetectionActive) {
-      loop()
-    }
-
-    return () => {
-      video.removeEventListener('loadedmetadata', updateCanvasSize)
-      if (loopRef.current) {
-        cancelAnimationFrame(loopRef.current)
-      }
-    }
-  }, [stream, isPoseDetectionActive])
-
-  const startCamera = async () => {
+  const startCamera = useCallback(async () => {
     try {
       setError(null)
       const mediaStream = await navigator.mediaDevices.getUserMedia({
@@ -132,6 +112,7 @@ export default function CameraView({ onCapture, onBack }: CameraViewProps) {
         audio: false,
       })
 
+      streamRef.current = mediaStream
       setStream(mediaStream)
       setHasPermission(true)
 
@@ -148,14 +129,107 @@ export default function CameraView({ onCapture, onBack }: CameraViewProps) {
           : "Acceso a la cámara denegado. Por favor permite los permisos de cámara para usar esta función.",
       )
     }
-  }
+  }, [facingMode, language])
 
-  const stopCamera = () => {
-    if (stream) {
-      stream.getTracks().forEach((track) => track.stop())
-      setStream(null)
+  useEffect(() => {
+    startCamera()
+    return () => {
+      stopCamera()
     }
-  }
+  }, [startCamera, stopCamera])
+
+  // Bucle de Detección en Tiempo Real
+  useEffect(() => {
+    if (!stream || !videoRef.current || !overlayCanvasRef.current || !detectorReady) return
+    if (!detectorRef.current) return
+
+    const video = videoRef.current
+    const canvas = overlayCanvasRef.current
+    const detector = detectorRef.current
+
+    // Ajustar tamaño del canvas al video
+    const updateCanvasSize = () => {
+      if (video.videoWidth > 0 && video.videoHeight > 0) {
+        canvas.width = video.videoWidth
+        canvas.height = video.videoHeight
+        setIsPoseDetectionActive(true)
+      }
+    }
+
+    video.addEventListener('loadedmetadata', updateCanvasSize)
+    updateCanvasSize()
+
+    const STRATEGIES: Record<string, (keypoints: any[]) => PoseEvaluationResult> = {
+      frontDoubleBiceps: analyzeFrontDoubleBicep,
+    }
+
+    const loop = async (ts: number) => {
+      // Throttle: ~10 FPS
+      if (ts - lastEstimateTimeRef.current < 100) {
+        loopRef.current = requestAnimationFrame(loop)
+        return
+      }
+      lastEstimateTimeRef.current = ts
+
+      // Evitar solapar inferencias
+      if (isEstimatingRef.current) {
+        loopRef.current = requestAnimationFrame(loop)
+        return
+      }
+
+      if (video.readyState === video.HAVE_ENOUGH_DATA && canvas.width > 0) {
+        isEstimatingRef.current = true
+        try {
+          const pose = await detector.estimate(video)
+
+          const ctx = canvas.getContext("2d")
+          if (ctx) {
+            clearCanvas(canvas)
+
+            if (pose && pose.keypoints.length > 0) {
+              // Confianza/visibilidad
+              const visible = pose.keypoints.filter((kp) => (kp.score ?? 0) > 0.3).length
+              const ratio = visible / pose.keypoints.length
+              setLiveConfidence(Math.round(ratio * 100))
+
+              // Dibujar skeleton
+              drawKeypoints(ctx, pose.keypoints, 0.3)
+
+              // Feedback en vivo (por ahora implementado para frontDoubleBiceps)
+              const strategy = STRATEGIES[selectedPose]
+              if (strategy && ratio > 0.4) {
+                setLiveAnalysis(strategy(pose.keypoints))
+              } else {
+                setLiveAnalysis(null)
+              }
+            } else {
+              setLiveConfidence(0)
+              setLiveAnalysis(null)
+            }
+          }
+        } catch (error) {
+          console.error("[CameraView] Error en detección:", error)
+          setLiveConfidence(null)
+          setLiveAnalysis(null)
+        } finally {
+          isEstimatingRef.current = false
+        }
+      }
+
+      loopRef.current = requestAnimationFrame(loop)
+    }
+
+    if (isPoseDetectionActive) {
+      loopRef.current = requestAnimationFrame(loop)
+    }
+
+    return () => {
+      video.removeEventListener('loadedmetadata', updateCanvasSize)
+      if (loopRef.current) {
+        cancelAnimationFrame(loopRef.current)
+      }
+    }
+  }, [stream, detectorReady, isPoseDetectionActive, selectedPose])
 
   const handleCapture = () => {
     if (!videoRef.current || !canvasRef.current) return
@@ -275,6 +349,65 @@ export default function CameraView({ onCapture, onBack }: CameraViewProps) {
             </Button>
           ))}
         </div>
+
+        {/* Live model + feedback */}
+        {stream && (
+          <div className="mt-3 rounded-lg bg-black/50 backdrop-blur border border-white/10 p-3 text-white">
+            <div className="flex items-center justify-between gap-3">
+              <div className="text-xs">
+                <span className="font-medium">
+                  {language === "en" ? "Model" : "Modelo"}:
+                </span>{" "}
+                {detectorStatus.state === "ready"
+                  ? language === "en"
+                    ? "Ready"
+                    : "Listo"
+                  : detectorStatus.state === "initializing"
+                    ? language === "en"
+                      ? "Loading..."
+                      : "Cargando..."
+                    : detectorStatus.state === "error"
+                      ? language === "en"
+                        ? "Error"
+                        : "Error"
+                      : language === "en"
+                        ? "Idle"
+                        : "Inactivo"}
+                {detectorStatus.backend ? ` (${detectorStatus.backend})` : ""}
+              </div>
+              <div className="text-xs">
+                <span className="font-medium">{language === "en" ? "Confidence" : "Confianza"}:</span>{" "}
+                {liveConfidence === null ? "--" : `${liveConfidence}%`}
+              </div>
+            </div>
+
+            {detectorStatus.state === "error" && detectorStatus.error && (
+              <div className="mt-2 text-xs text-red-200">
+                {detectorStatus.error}
+              </div>
+            )}
+
+            {selectedPose !== "frontDoubleBiceps" && (
+              <div className="mt-2 text-xs text-white/80">
+                {language === "en"
+                  ? "Live coaching is available for Front Double Biceps for now."
+                  : "El coaching en vivo está disponible (por ahora) para Doble Bíceps Frontal."}
+              </div>
+            )}
+
+            {selectedPose === "frontDoubleBiceps" && liveAnalysis && (
+              <div className="mt-2 flex items-start justify-between gap-3">
+                <div className="text-sm font-semibold">
+                  {language === "en" ? "Live score" : "Puntaje en vivo"}:{" "}
+                  <span className="text-primary">{liveAnalysis.score}%</span>
+                </div>
+                <div className="text-xs text-white/80 max-w-[60%] text-right">
+                  {liveAnalysis.feedback[0]?.title ?? ""}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Bottom Controls */}

@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useMemo, useState } from "react"
 import { Card } from "@/components/ui/card"
 import { TrendingUp, Target, Award, Calendar } from "lucide-react"
 import { useLanguage } from "@/lib/language-context"
@@ -13,19 +13,12 @@ export default function ProgressView() {
   const { language } = useLanguage()
   const t = (key: Parameters<typeof getTranslation>[1]) => getTranslation(language, key)
 
-  const [stats, setStats] = useState<UserStats | null>(null)
-  const [recentScans, setRecentScans] = useState<ScanResult[]>([])
-  const [chartData, setChartData] = useState<{ date: string; score: number; label: string }[]>([])
+  const [stats] = useState<UserStats>(() => getStats())
+  const [recentScans] = useState<ScanResult[]>(() => getScans())
 
-  useEffect(() => {
-    const userStats = getStats()
-    const scans = getScans()
-
-    setStats(userStats)
-    setRecentScans(scans)
-
+  const chartData = useMemo(() => {
     // Prepare chart data from last 30 days
-    const data = userStats.scanHistory
+    return stats.scanHistory
       .slice(-30)
       .reverse()
       .map((entry) => ({
@@ -36,9 +29,7 @@ export default function ProgressView() {
           day: "numeric",
         }),
       }))
-
-    setChartData(data)
-  }, [language])
+  }, [language, stats.scanHistory])
 
   const getStreakMessage = (streak: number) => {
     if (language === "en") {

@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Trash2, Eye, Calendar, TrendingUp } from "lucide-react"
@@ -8,6 +8,7 @@ import { useLanguage } from "@/lib/language-context"
 import { getTranslation } from "@/lib/i18n"
 import { getScans, deleteScan } from "@/lib/storage"
 import type { ScanResult } from "@/lib/storage"
+import Image from "next/image"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -24,21 +25,12 @@ export default function HistoryView() {
   const { language } = useLanguage()
   const t = (key: Parameters<typeof getTranslation>[1]) => getTranslation(language, key)
 
-  const [scans, setScans] = useState<ScanResult[]>([])
+  const [scans, setScans] = useState<ScanResult[]>(() => getScans())
   const [selectedScan, setSelectedScan] = useState<ScanResult | null>(null)
-
-  useEffect(() => {
-    loadScans()
-  }, [])
-
-  const loadScans = () => {
-    const allScans = getScans()
-    setScans(allScans)
-  }
 
   const handleDelete = (scanId: string) => {
     deleteScan(scanId)
-    loadScans()
+    setScans(getScans())
     if (selectedScan?.id === scanId) {
       setSelectedScan(null)
     }
@@ -79,11 +71,16 @@ export default function HistoryView() {
               <div className="flex gap-4">
                 {/* Thumbnail */}
                 <div className="w-20 h-20 flex-shrink-0 rounded-lg overflow-hidden bg-secondary">
-                  <img
-                    src={scan.thumbnail || "/placeholder.svg"}
-                    alt={scan.pose}
-                    className="w-full h-full object-cover"
-                  />
+                  <div className="relative w-full h-full">
+                    <Image
+                      src={scan.thumbnail || "/placeholder.svg"}
+                      alt={scan.pose}
+                      fill
+                      sizes="80px"
+                      className="object-cover"
+                      unoptimized
+                    />
+                  </div>
                 </div>
 
                 {/* Content */}
@@ -181,11 +178,16 @@ export default function HistoryView() {
               </div>
 
               <div className="aspect-[3/4] rounded-lg overflow-hidden bg-secondary">
-                <img
-                  src={selectedScan.thumbnail || "/placeholder.svg"}
-                  alt={selectedScan.pose}
-                  className="w-full h-full object-cover"
-                />
+                <div className="relative w-full h-full">
+                  <Image
+                    src={selectedScan.thumbnail || "/placeholder.svg"}
+                    alt={selectedScan.pose}
+                    fill
+                    sizes="(max-width: 768px) 90vw, 512px"
+                    className="object-cover"
+                    unoptimized
+                  />
+                </div>
               </div>
 
               <div className="flex items-center justify-between p-4 bg-primary/10 rounded-lg border border-primary/20">

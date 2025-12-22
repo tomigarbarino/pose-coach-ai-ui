@@ -3,9 +3,18 @@ import '@testing-library/jest-dom'
 // Mock TensorFlow.js
 jest.mock('@tensorflow/tfjs', () => ({
   ready: jest.fn(() => Promise.resolve()),
+  setBackend: jest.fn(() => Promise.resolve(true)),
+  getBackend: jest.fn(() => 'cpu'),
   browser: {
     fromPixels: jest.fn(),
   },
+}))
+
+// Mock TFJS backends (imports used by PoseDetectorService.initialize)
+jest.mock('@tensorflow/tfjs-backend-webgl', () => ({}))
+jest.mock('@tensorflow/tfjs-backend-webgpu', () => ({}))
+jest.mock('@tensorflow/tfjs-backend-wasm', () => ({
+  setWasmPaths: jest.fn(),
 }))
 
 // Mock PoseNet

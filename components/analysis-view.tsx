@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, useCallback } from "react"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
@@ -11,9 +11,10 @@ import { getTranslation } from "@/lib/i18n"
 import { addScan } from "@/lib/storage"
 import type { ScanResult } from "@/lib/storage"
 import { PoseDetectorService } from "@/services/PoseDetector"
-import { drawKeypoints, clearCanvas } from "@/utils/canvasDrawing"
+import { drawKeypoints } from "@/utils/canvasDrawing"
 import { analyzeFrontDoubleBicep } from "@/analysis/strategies/FrontDoubleBicep"
 import type { PoseEvaluationResult } from "@/types/analysis"
+import Image from "next/image"
 
 interface AnalysisViewProps {
   imageUrl: string
@@ -38,18 +39,11 @@ export default function AnalysisView({ imageUrl, selectedPose, onBack }: Analysi
   const [isAnalyzing, setIsAnalyzing] = useState(true)
   const [analysis, setAnalysis] = useState<PoseEvaluationResult | null>(null)
 
-  const imageRef = useRef<HTMLImageElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const detectorRef = useRef<PoseDetectorService | null>(null)
 
-  useEffect(() => {
-    if (imageRef.current && imageRef.current.complete) {
-      performAnalysis()
-    }
-  }, [imageUrl, selectedPose])
-
-  const performAnalysis = async () => {
-    if (!imageRef.current) return
+  const performAnalysis = useCallback(async () => {
+    if (!imageUrl) return
 
     setIsAnalyzing(true)
 
@@ -60,7 +54,10 @@ export default function AnalysisView({ imageUrl, selectedPose, onBack }: Analysi
         await detectorRef.current.initialize()
       }
 
-      const img = imageRef.current
+      // 2. Cargar imagen en memoria (sin depender de <img> del DOM)
+      const img = new window.Image()
+      img.src = imageUrl
+      await img.decode()
 
       // 2. Obtener keypoints crudos con PoseNet
       const pose = await detectorRef.current.estimate(img)
@@ -77,8 +74,8 @@ export default function AnalysisView({ imageUrl, selectedPose, onBack }: Analysi
         // 5. Preparar canvas para dibujar esqueleto
         if (canvasRef.current) {
           const canvas = canvasRef.current
-          canvas.width = img.width
-          canvas.height = img.height
+          canvas.width = img.naturalWidth || img.width
+          canvas.height = img.naturalHeight || img.height
 
           const ctx = canvas.getContext('2d')
           if (ctx) {
@@ -124,14 +121,18 @@ export default function AnalysisView({ imageUrl, selectedPose, onBack }: Analysi
     } finally {
       setIsAnalyzing(false)
     }
-  }
+  }, [imageUrl, language, selectedPose])
+
+  useEffect(() => {
+    performAnalysis()
+  }, [performAnalysis])
 
   const handleSaveScan = () => {
     if (!analysis) return
 
     const scanResult: ScanResult = {
       id: Date.now().toString(),
-      pose: "frontDoubleBiceps",
+      pose: selectedPose,
       score: analysis.score,
       date: new Date().toISOString(),
       thumbnail: imageUrl,
@@ -204,12 +205,16 @@ export default function AnalysisView({ imageUrl, selectedPose, onBack }: Analysi
         {/* Image with Skeleton Overlay */}
         <Card className="overflow-hidden bg-card border-border">
           <div className="relative aspect-[3/4] bg-secondary">
-            <img
-              ref={imageRef}
-              src={imageUrl || "/placeholder.svg"}
-              alt="Captured pose"
-              className={`w-full h-full object-cover ${showSkeleton ? "hidden" : ""}`}
-            />
+            {!showSkeleton && (
+              <Image
+                src={imageUrl || "/placeholder.svg"}
+                alt="Captured pose"
+                fill
+                sizes="(max-width: 768px) 90vw, 512px"
+                className="object-cover"
+                unoptimized
+              />
+            )}
             {showSkeleton && canvasRef.current && <canvas ref={canvasRef} className="w-full h-full object-contain" />}
             {!showSkeleton && <canvas ref={canvasRef} className="hidden" />}
 
