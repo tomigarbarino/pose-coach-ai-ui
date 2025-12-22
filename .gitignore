@@ -1,4 +1,5 @@
-node_modules.next
+node_modules
+.next
 coverage
 *.log
 .DS_Store
@@ -7,3 +8,5 @@ coverage
 .env.production.local
 .env.development.local
 certificates
+tsconfig.tsbuildinfo
+*.tsbuildinfo
