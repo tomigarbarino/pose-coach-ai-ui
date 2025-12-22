@@ -10,7 +10,6 @@ import HistoryView from "@/components/history-view"
 import SocialView from "@/components/social-view"
 import Onboarding from "@/components/onboarding"
 import { useLanguage } from "@/lib/language-context"
-import { getTranslation } from "@/lib/i18n"
 import { initializeStorage } from "@/lib/storage"
 
 type View = "home" | "camera" | "analysis" | "history" | "profile" | "social"
@@ -19,17 +18,14 @@ export default function PoseCoachApp() {
   const [currentView, setCurrentView] = useState<View>("home")
   const [capturedImage, setCapturedImage] = useState<string | null>(null)
   const [selectedPose, setSelectedPose] = useState<string>("frontDoubleBiceps")
-  const [showOnboarding, setShowOnboarding] = useState(false)
+  const [showOnboarding, setShowOnboarding] = useState<boolean>(false)
   const { language } = useLanguage()
-  const t = (key: Parameters<typeof getTranslation>[1]) => getTranslation(language, key)
 
   useEffect(() => {
     initializeStorage()
-
-    const hasSeenOnboarding = localStorage.getItem("posecoach_onboarding_complete")
-    if (!hasSeenOnboarding) {
-      setShowOnboarding(true)
-    }
+    // Verificar el estado de onboarding solo en el cliente después de la hidratación
+    const onboardingComplete = localStorage.getItem("posecoach_onboarding_complete")
+    setShowOnboarding(!onboardingComplete)
   }, [])
 
   const handleOnboardingComplete = () => {
