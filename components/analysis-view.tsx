@@ -59,7 +59,7 @@ export default function AnalysisView({ imageUrl, selectedPose, onBack }: Analysi
       img.src = imageUrl
       await img.decode()
 
-      // 2. Obtener keypoints crudos con PoseNet
+      // 2. Obtener keypoints crudos con MoveNet
       const pose = await detectorRef.current.estimate(img)
 
       if (pose && pose.keypoints && pose.keypoints.length > 0) {
