@@ -46,6 +46,11 @@ export default function CameraView({ onCapture, onBack }: CameraViewProps) {
   const [liveConfidence, setLiveConfidence] = useState<number | null>(null)
   const [liveAnalysis, setLiveAnalysis] = useState<PoseEvaluationResult | null>(null)
 
+  // QUICK WINS: Estado para tracking de progreso y tiempo
+  const [previousScore, setPreviousScore] = useState<number | null>(null)
+  const [timeInOptimalRange, setTimeInOptimalRange] = useState<number>(0)
+  const [showProgressCelebration, setShowProgressCelebration] = useState<string | null>(null)
+
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const overlayCanvasRef = useRef<HTMLCanvasElement>(null)
@@ -164,8 +169,8 @@ export default function CameraView({ onCapture, onBack }: CameraViewProps) {
     }
 
     const loop = async (ts: number) => {
-      // Throttle: ~10 FPS
-      if (ts - lastEstimateTimeRef.current < 100) {
+      // Throttle: ~20 FPS (optimizado para MoveNet Lightning)
+      if (ts - lastEstimateTimeRef.current < 50) {
         loopRef.current = requestAnimationFrame(loop)
         return
       }
@@ -198,9 +203,31 @@ export default function CameraView({ onCapture, onBack }: CameraViewProps) {
               // Feedback en vivo (por ahora implementado para frontDoubleBiceps)
               const strategy = STRATEGIES[selectedPose]
               if (strategy && ratio > 0.4) {
-                setLiveAnalysis(strategy(pose.keypoints))
+                const result = strategy(pose.keypoints)
+                setLiveAnalysis(result)
+
+                // QUICK WIN 2 & 3: Tracking de progreso y tiempo
+                const currentScore = result.score
+
+                // Quick Win 3: Detectar mejora y celebrar
+                if (previousScore !== null && currentScore > previousScore && currentScore >= 70) {
+                  const improvement = currentScore - previousScore
+                  if (improvement >= 10) {
+                    setShowProgressCelebration("¡Bien! Sigue así ⬆️")
+                    setTimeout(() => setShowProgressCelebration(null), 2000)
+                  }
+                }
+                setPreviousScore(currentScore)
+
+                // Quick Win 2: Contador de tiempo en rango óptimo
+                if (currentScore >= 85) {
+                  setTimeInOptimalRange(prev => Math.min(prev + 1, 30)) // Max 3 segundos (30 frames a 10 FPS)
+                } else {
+                  setTimeInOptimalRange(0)
+                }
               } else {
                 setLiveAnalysis(null)
+                setTimeInOptimalRange(0)
               }
             } else {
               setLiveConfidence(0)
@@ -293,117 +320,161 @@ export default function CameraView({ onCapture, onBack }: CameraViewProps) {
 
         <canvas ref={canvasRef} className="hidden" />
 
-        {/* Skeleton guide overlay */}
+        {/* Skeleton guide overlay - MODO GIMNASIO (Alto Contraste) */}
         {stream && (
           <div className="relative z-10 h-[70vh] w-[90vw] max-w-md">
             <svg
               viewBox="0 0 200 300"
-              className="w-full h-full opacity-30"
-              style={{ filter: "drop-shadow(0 0 8px rgba(132, 250, 176, 0.4))" }}
+              className="w-full h-full opacity-70"
+              style={{ filter: "drop-shadow(0 0 12px rgba(255, 215, 0, 0.8))" }}
             >
-              {/* Simple skeleton wireframe */}
-              <circle cx="100" cy="40" r="15" fill="none" stroke="rgb(132, 250, 176)" strokeWidth="2" />
-              <line x1="100" y1="55" x2="100" y2="120" stroke="rgb(132, 250, 176)" strokeWidth="2" />
-              <line x1="100" y1="70" x2="60" y2="110" stroke="rgb(132, 250, 176)" strokeWidth="2" />
-              <line x1="100" y1="70" x2="140" y2="110" stroke="rgb(132, 250, 176)" strokeWidth="2" />
-              <line x1="100" y1="120" x2="70" y2="200" stroke="rgb(132, 250, 176)" strokeWidth="2" />
-              <line x1="100" y1="120" x2="130" y2="200" stroke="rgb(132, 250, 176)" strokeWidth="2" />
-              <circle cx="60" cy="110" r="6" fill="rgb(132, 250, 176)" />
-              <circle cx="140" cy="110" r="6" fill="rgb(132, 250, 176)" />
-              <circle cx="70" cy="200" r="6" fill="rgb(132, 250, 176)" />
-              <circle cx="130" cy="200" r="6" fill="rgb(132, 250, 176)" />
+              {/* Simple skeleton wireframe - AMARILLO NEÓN para luces fuertes */}
+              <circle cx="100" cy="40" r="15" fill="none" stroke="rgb(255, 215, 0)" strokeWidth="3" />
+              <line x1="100" y1="55" x2="100" y2="120" stroke="rgb(255, 215, 0)" strokeWidth="3" />
+              <line x1="100" y1="70" x2="60" y2="110" stroke="rgb(255, 215, 0)" strokeWidth="3" />
+              <line x1="100" y1="70" x2="140" y2="110" stroke="rgb(255, 215, 0)" strokeWidth="3" />
+              <line x1="100" y1="120" x2="70" y2="200" stroke="rgb(255, 215, 0)" strokeWidth="3" />
+              <line x1="100" y1="120" x2="130" y2="200" stroke="rgb(255, 215, 0)" strokeWidth="3" />
+              <circle cx="60" cy="110" r="7" fill="rgb(255, 215, 0)" />
+              <circle cx="140" cy="110" r="7" fill="rgb(255, 215, 0)" />
+              <circle cx="70" cy="200" r="7" fill="rgb(255, 215, 0)" />
+              <circle cx="130" cy="200" r="7" fill="rgb(255, 215, 0)" />
             </svg>
 
-            {/* Alignment grid */}
-            <div className="absolute inset-0 grid grid-cols-3 grid-rows-3 opacity-20">
+            {/* Alignment grid - Alto contraste */}
+            <div className="absolute inset-0 grid grid-cols-3 grid-rows-3 opacity-30">
               {[...Array(9)].map((_, i) => (
-                <div key={i} className="border border-primary/30" />
+                <div key={i} className="border border-yellow-400/40" />
               ))}
             </div>
           </div>
         )}
 
-        {/* Center crosshair */}
+        {/* Center crosshair - Alto contraste */}
         {stream && (
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-8 h-8 pointer-events-none">
-            <div className="absolute top-1/2 left-0 right-0 h-px bg-primary/60" />
-            <div className="absolute left-1/2 top-0 bottom-0 w-px bg-primary/60" />
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-10 h-10 pointer-events-none">
+            <div className="absolute top-1/2 left-0 right-0 h-0.5 bg-yellow-400/70 shadow-[0_0_8px_rgba(255,215,0,0.6)]" />
+            <div className="absolute left-1/2 top-0 bottom-0 w-0.5 bg-yellow-400/70 shadow-[0_0_8px_rgba(255,215,0,0.6)]" />
           </div>
         )}
       </div>
 
       {/* Pose Selector */}
       <div className="absolute top-20 left-0 right-0 z-10 px-4">
-        <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
+        <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide">
           {poses.map((pose) => (
             <Button
               key={pose}
               variant={selectedPose === pose ? "default" : "secondary"}
-              size="sm"
               onClick={() => setSelectedPose(pose)}
-              className={
-                selectedPose === pose ? "bg-primary text-primary-foreground whitespace-nowrap" : "whitespace-nowrap"
-              }
+              className={`min-h-[48px] px-6 py-3 text-base font-semibold whitespace-nowrap ${
+                selectedPose === pose 
+                  ? "bg-primary text-primary-foreground shadow-lg shadow-primary/40" 
+                  : "bg-secondary/80 backdrop-blur"
+              }`}
             >
               {t(pose)}
             </Button>
           ))}
         </div>
 
-        {/* Live model + feedback */}
+        {/* Live model + feedback - MODO GIMNASIO */}
         {stream && (
-          <div className="mt-3 rounded-lg bg-black/50 backdrop-blur border border-white/10 p-3 text-white">
-            <div className="flex items-center justify-between gap-3">
-              <div className="text-xs">
-                <span className="font-medium">
-                  {language === "en" ? "Model" : "Modelo"}:
-                </span>{" "}
-                {detectorStatus.state === "ready"
-                  ? language === "en"
-                    ? "Ready"
-                    : "Listo"
-                  : detectorStatus.state === "initializing"
-                    ? language === "en"
-                      ? "Loading..."
-                      : "Cargando..."
-                    : detectorStatus.state === "error"
+          <div className="mt-3">
+            {/* MODO FOCUS: Feedback principal GIGANTE cuando hay análisis */}
+            {selectedPose === "frontDoubleBiceps" && liveAnalysis && liveAnalysis.score > 0 ? (
+              <div className="rounded-2xl bg-black/70 backdrop-blur-xl border-2 border-yellow-400/50 p-6 text-white shadow-2xl">
+                {/* Score GIGANTE - Legible a 2-3 metros */}
+                <div className="text-center mb-4">
+                  <div className="text-6xl font-black tracking-tight mb-2" style={{ textShadow: '0 0 20px rgba(255,215,0,0.5)' }}>
+                    {liveAnalysis.score}
+                    <span className="text-5xl text-yellow-400">%</span>
+                  </div>
+                  <div className="text-xs uppercase tracking-widest text-yellow-400/80 font-semibold">
+                    {language === "en" ? "LIVE SCORE" : "PUNTAJE EN VIVO"}
+                  </div>
+                </div>
+
+                {/* QUICK WIN 2: Contador de Tiempo en Rango Óptimo */}
+                {liveAnalysis.score >= 85 && timeInOptimalRange > 0 ? (
+                  <div className="text-center py-6 px-4 bg-gradient-to-r from-green-500/20 to-yellow-400/20 rounded-xl border-2 border-green-400/50 mb-4 animate-pulse">
+                    <p className="text-3xl font-black tracking-wide mb-2">
+                      ¡MANTÉN! 🔥
+                    </p>
+                    <div className="text-5xl font-black text-green-400">
+                      {Math.ceil((30 - timeInOptimalRange) / 10)}
+                    </div>
+                    <p className="text-sm text-white/80 mt-1">
+                      {language === "en" ? "seconds..." : "segundos..."}
+                    </p>
+                  </div>
+                ) : (
+                  /* Feedback principal GIGANTE */
+                  <div className="text-center py-4 px-3 bg-yellow-400/10 rounded-xl border border-yellow-400/30">
+                    <p className="text-2xl font-bold leading-tight tracking-wide">
+                      {liveAnalysis.feedback[0]?.title ?? ""}
+                    </p>
+                  </div>
+                )}
+
+                {/* QUICK WIN 3: Celebración de Progreso */}
+                {showProgressCelebration && (
+                  <div className="mt-3 text-center py-2 px-4 bg-green-500/20 rounded-lg border border-green-400/50 animate-in fade-in duration-300">
+                    <p className="text-lg font-bold text-green-400">
+                      {showProgressCelebration}
+                    </p>
+                  </div>
+                )}
+
+                {/* Confianza (pequeño pero visible) */}
+                <div className="mt-3 text-center text-sm text-white/60">
+                  {language === "en" ? "Confidence" : "Confianza"}: {liveConfidence ?? "--"}%
+                </div>
+              </div>
+            ) : (
+              /* MODO INFO: Panel compacto cuando NO hay análisis activo */
+              <div className="rounded-lg bg-black/50 backdrop-blur border border-white/10 p-4 text-white">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="text-sm">
+                    <span className="font-semibold">
+                      {language === "en" ? "Model" : "Modelo"}:
+                    </span>{" "}
+                    {detectorStatus.state === "ready"
                       ? language === "en"
-                        ? "Error"
-                        : "Error"
-                      : language === "en"
-                        ? "Idle"
-                        : "Inactivo"}
-                {detectorStatus.backend ? ` (${detectorStatus.backend})` : ""}
-              </div>
-              <div className="text-xs">
-                <span className="font-medium">{language === "en" ? "Confidence" : "Confianza"}:</span>{" "}
-                {liveConfidence === null ? "--" : `${liveConfidence}%`}
-              </div>
-            </div>
-
-            {detectorStatus.state === "error" && detectorStatus.error && (
-              <div className="mt-2 text-xs text-red-200">
-                {detectorStatus.error}
-              </div>
-            )}
-
-            {selectedPose !== "frontDoubleBiceps" && (
-              <div className="mt-2 text-xs text-white/80">
-                {language === "en"
-                  ? "Live coaching is available for Front Double Biceps for now."
-                  : "El coaching en vivo está disponible (por ahora) para Doble Bíceps Frontal."}
-              </div>
-            )}
-
-            {selectedPose === "frontDoubleBiceps" && liveAnalysis && (
-              <div className="mt-2 flex items-start justify-between gap-3">
-                <div className="text-sm font-semibold">
-                  {language === "en" ? "Live score" : "Puntaje en vivo"}:{" "}
-                  <span className="text-primary">{liveAnalysis.score}%</span>
+                        ? "Ready"
+                        : "Listo"
+                      : detectorStatus.state === "initializing"
+                        ? language === "en"
+                          ? "Loading..."
+                          : "Cargando..."
+                        : detectorStatus.state === "error"
+                          ? language === "en"
+                            ? "Error"
+                            : "Error"
+                          : language === "en"
+                            ? "Idle"
+                            : "Inactivo"}
+                    {detectorStatus.backend ? ` (${detectorStatus.backend})` : ""}
+                  </div>
+                  <div className="text-sm">
+                    <span className="font-semibold">{language === "en" ? "Confidence" : "Confianza"}:</span>{" "}
+                    {liveConfidence === null ? "--" : `${liveConfidence}%`}
+                  </div>
                 </div>
-                <div className="text-xs text-white/80 max-w-[60%] text-right">
-                  {liveAnalysis.feedback[0]?.title ?? ""}
-                </div>
+
+                {detectorStatus.state === "error" && detectorStatus.error && (
+                  <div className="mt-2 text-sm text-red-300">
+                    {detectorStatus.error}
+                  </div>
+                )}
+
+                {selectedPose !== "frontDoubleBiceps" && (
+                  <div className="mt-2 text-sm text-white/70 text-center">
+                    {language === "en"
+                      ? "Live coaching available for Front Double Biceps"
+                      : "Coaching en vivo disponible para Doble Bíceps Frontal"}
+                  </div>
+                )}
               </div>
             )}
           </div>

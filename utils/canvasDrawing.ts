@@ -25,14 +25,16 @@ export function drawKeypoints(
   keypoints: Keypoint[],
   minScore = 0.3
 ): void {
-  // Estilo Neon Cyberpunk
-  const pointColor = 'rgb(132, 250, 176)';
-  const pointStroke = 'rgb(20, 40, 30)';
-  const lineColor = 'rgb(132, 250, 176)';
+  // Estilo Gimnasio: Amarillo Neón (Alto Contraste para luces LED fuertes)
+  const pointColor = 'rgb(255, 215, 0)'; // Amarillo dorado neón
+  const pointStroke = 'rgb(40, 35, 0)'; // Sombra oscura
+  const lineColor = 'rgb(255, 215, 0)'; // Amarillo dorado neón
   
   // 1. Dibujar conexiones (líneas) primero para que queden debajo
   ctx.strokeStyle = lineColor;
-  ctx.lineWidth = 3;
+  ctx.lineWidth = 4; // Más grosor para mejor visibilidad
+  ctx.shadowBlur = 10; // Glow effect para gimnasio
+  ctx.shadowColor = 'rgba(255, 215, 0, 0.8)';
 
   POSE_CONNECTIONS.forEach(([startName, endName]) => {
     const startPoint = keypoints.find((kp) => kp.name === startName);
@@ -55,14 +57,20 @@ export function drawKeypoints(
   keypoints.forEach((kp) => {
     if ((kp.score ?? 0) > minScore) {
       ctx.beginPath();
-      ctx.arc(kp.x, kp.y, 8, 0, 2 * Math.PI);
+      ctx.arc(kp.x, kp.y, 10, 0, 2 * Math.PI); // Más grande para mejor visibilidad
       ctx.fillStyle = pointColor;
+      ctx.shadowBlur = 15; // Glow intenso
+      ctx.shadowColor = 'rgba(255, 215, 0, 1)';
       ctx.fill();
       ctx.strokeStyle = pointStroke;
-      ctx.lineWidth = 2;
+      ctx.lineWidth = 3;
+      ctx.shadowBlur = 0; // Reset shadow para el stroke
       ctx.stroke();
     }
   });
+  
+  // Reset shadow para otros dibujos
+  ctx.shadowBlur = 0;
 }
 
 export function clearCanvas(canvas: HTMLCanvasElement): void {
