@@ -1,7 +1,7 @@
 import { PoseDetectorService } from '../PoseDetector'
-import * as posenet from '@tensorflow-models/posenet'
+import * as poseDetection from '@tensorflow-models/pose-detection'
 
-jest.mock('@tensorflow-models/posenet')
+jest.mock('@tensorflow-models/pose-detection')
 
 describe('PoseDetectorService', () => {
   let service: PoseDetectorService
@@ -25,15 +25,17 @@ describe('PoseDetectorService', () => {
   })
 
   describe('initialize', () => {
-    it('should load PoseNet model', async () => {
+    it('should load MoveNet model', async () => {
       await service.initialize()
       
-      expect(posenet.load).toHaveBeenCalledWith({
-        architecture: 'MobileNetV1',
-        outputStride: 16,
-        inputResolution: { width: 257, height: 257 },
-        multiplier: 0.75,
-      })
+      expect(poseDetection.createDetector).toHaveBeenCalledWith(
+        poseDetection.SupportedModels.MoveNet,
+        {
+          modelType: poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING,
+          enableSmoothing: true,
+          minPoseScore: 0.3,
+        }
+      )
     })
 
     it('should not load model twice', async () => {
@@ -41,7 +43,7 @@ describe('PoseDetectorService', () => {
       await service.initialize()
       
       // Should only be called once
-      expect(posenet.load).toHaveBeenCalledTimes(1)
+      expect(poseDetection.createDetector).toHaveBeenCalledTimes(1)
     })
   })
 
@@ -69,8 +71,8 @@ describe('PoseDetectorService', () => {
 
     it('should handle estimation errors', async () => {
       const mockError = new Error('Estimation failed')
-      ;(posenet.load as jest.Mock).mockResolvedValueOnce({
-        estimateSinglePose: jest.fn(() => Promise.reject(mockError)),
+      ;(poseDetection.createDetector as jest.Mock).mockResolvedValueOnce({
+        estimatePoses: jest.fn(() => Promise.reject(mockError)),
         dispose: jest.fn(),
       })
 

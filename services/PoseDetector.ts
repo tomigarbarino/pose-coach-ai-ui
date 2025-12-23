@@ -1,7 +1,7 @@
 type TfjsModule = typeof import('@tensorflow/tfjs');
-type PoseNetModule = typeof import('@tensorflow-models/posenet');
+type PoseDetectionModule = typeof import('@tensorflow-models/pose-detection');
 
-type PoseNetInstance = Awaited<ReturnType<PoseNetModule['load']>>;
+type PoseDetectorInstance = Awaited<ReturnType<PoseDetectionModule['createDetector']>>;
 
 export type PoseDetectorBackend = 'webgpu' | 'webgl' | 'wasm' | 'cpu';
 export type PoseDetectorInitState = 'idle' | 'initializing' | 'ready' | 'error';
@@ -20,7 +20,7 @@ export interface Pose {
 
 export class PoseDetectorService {
   private static instance: PoseDetectorService | null = null;
-  private detector: PoseNetInstance | null = null;
+  private detector: PoseDetectorInstance | null = null;
   private isInitialized = false;
   private initPromise: Promise<void> | null = null;
 
@@ -29,7 +29,7 @@ export class PoseDetectorService {
   private lastInitError: string | null = null;
 
   private tf: TfjsModule | null = null;
-  private posenet: PoseNetModule | null = null;
+  private poseDetection: PoseDetectionModule | null = null;
 
   private constructor() {}
 
@@ -114,20 +114,22 @@ export class PoseDetectorService {
         const tf = await this.loadTfjsAndBackends();
         this.backend = await this.selectBestBackend(tf);
 
-        // PoseNet
-        this.posenet = (await import('@tensorflow-models/posenet')) as PoseNetModule;
+        // MoveNet - Pose Detection API
+        this.poseDetection = (await import('@tensorflow-models/pose-detection')) as PoseDetectionModule;
 
-        // Cargar el modelo PoseNet
-        this.detector = await this.posenet.load({
-          architecture: 'MobileNetV1',
-          outputStride: 16,
-          inputResolution: { width: 257, height: 257 },
-          multiplier: 0.75,
-        });
+        // Cargar el modelo MoveNet SinglePose Lightning (3x más rápido que PoseNet)
+        this.detector = await this.poseDetection.createDetector(
+          this.poseDetection.SupportedModels.MoveNet,
+          {
+            modelType: this.poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING,
+            enableSmoothing: true, // Suavizado temporal para keypoints más estables
+            minPoseScore: 0.3,
+          }
+        );
 
         this.isInitialized = true;
         this.initState = 'ready';
-        console.log('[PoseDetector] Modelo PoseNet cargado exitosamente', { backend: this.backend });
+        console.log('[PoseDetector] Modelo MoveNet Lightning cargado exitosamente', { backend: this.backend });
       } catch (error) {
         console.error('[PoseDetector] Error al cargar el modelo:', error);
         this.lastInitError = error instanceof Error ? error.message : String(error);
@@ -142,11 +144,11 @@ export class PoseDetectorService {
 
   private normalizeKeypointName(name: string | undefined): string {
     if (!name) return 'unknown';
-    // Si ya viene en snake_case, lo dejamos.
+    // MoveNet ya devuelve nombres en snake_case
     if (name.includes('_')) return name;
 
-    // PoseNet usa camelCase: leftShoulder, rightElbow, leftHip, leftEye, etc.
-    // Lo convertimos a snake_case para que coincida con las estrategias/dibujo del repo.
+    // Fallback: Si por alguna razón viene en camelCase, convertir a snake_case
+    // MoveNet usa: left_shoulder, right_shoulder, etc. (ya normalizado)
     const map: Record<string, string> = {
       leftShoulder: 'left_shoulder',
       rightShoulder: 'right_shoulder',
@@ -178,18 +180,23 @@ export class PoseDetectorService {
     }
 
     try {
-      const pose = await this.detector!.estimateSinglePose(input, {
+      // MoveNet.estimatePoses() devuelve un array de poses
+      const poses = await this.detector!.estimatePoses(input, {
         flipHorizontal: false,
       });
 
-      if (!pose || !pose.keypoints) return null;
+      // Si no hay poses detectadas, retornar null
+      if (!poses || poses.length === 0 || !poses[0].keypoints) return null;
+      
+      const pose = poses[0]; // SinglePose Lightning solo detecta 1 persona
       
       // Normalizar la estructura de keypoints
-      const normalizedKeypoints: Keypoint[] = pose.keypoints.map((kp) => ({
-        x: kp.position.x,
-        y: kp.position.y,
+      // MoveNet devuelve: { x, y, score, name } (ya normalizado)
+      const normalizedKeypoints: Keypoint[] = pose.keypoints.map((kp: any) => ({
+        x: kp.x,
+        y: kp.y,
         score: kp.score,
-        name: this.normalizeKeypointName((kp as any).part),
+        name: this.normalizeKeypointName(kp.name),
       }));
 
       return {

@@ -17,17 +17,27 @@ jest.mock('@tensorflow/tfjs-backend-wasm', () => ({
   setWasmPaths: jest.fn(),
 }))
 
-// Mock PoseNet
-jest.mock('@tensorflow-models/posenet', () => ({
-  load: jest.fn(() => Promise.resolve({
-    estimateSinglePose: jest.fn(() => Promise.resolve({
-      score: 0.9,
-      keypoints: [
-        { part: 'nose', position: { x: 100, y: 100 }, score: 0.9 },
-        { part: 'leftShoulder', position: { x: 80, y: 120 }, score: 0.85 },
-        { part: 'rightShoulder', position: { x: 120, y: 120 }, score: 0.85 },
-      ],
-    })),
+// Mock MoveNet (Pose Detection API)
+jest.mock('@tensorflow-models/pose-detection', () => ({
+  SupportedModels: {
+    MoveNet: 'MoveNet',
+  },
+  movenet: {
+    modelType: {
+      SINGLEPOSE_LIGHTNING: 'SinglePose.Lightning',
+    },
+  },
+  createDetector: jest.fn(() => Promise.resolve({
+    estimatePoses: jest.fn(() => Promise.resolve([
+      {
+        score: 0.9,
+        keypoints: [
+          { name: 'nose', x: 100, y: 100, score: 0.9 },
+          { name: 'left_shoulder', x: 80, y: 120, score: 0.85 },
+          { name: 'right_shoulder', x: 120, y: 120, score: 0.85 },
+        ],
+      }
+    ])),
     dispose: jest.fn(),
   })),
 }))
